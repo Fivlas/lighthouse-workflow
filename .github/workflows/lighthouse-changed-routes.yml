@@ -104,8 +104,7 @@ jobs:
                   }
                 },
                 upload: {
-                  target: "filesystem",
-                  outputDir: "./lhci-reports"
+                  target: "temporary-public-storage"
                 }
               }
             };
@@ -117,6 +116,8 @@ jobs:
 
       - name: Run Lighthouse
         if: steps.routes.outputs.routes != '[]'
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
         run: |
           npx @lhci/cli autorun --config=.lighthouserc.json
 
@@ -125,7 +126,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lighthouse-changed-routes
-          path: lhci-reports/
+          path: .lighthouseci/
           if-no-files-found: warn
 
       - name: Stop Next.js
