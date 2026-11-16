@@ -1,0 +1,136 @@
+
+name: Lighthouse - Changed Routes
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lighthouse-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lighthouse:
+    name: Audit changed Next.js routes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Detect changed routes
+        id: routes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            BASE_SHA="$(git merge-base HEAD "origin/$DEFAULT_BRANCH")"
+            HEAD_SHA="$(git rev-parse HEAD)"
+          fi
+
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > /tmp/changed-files.txt
+
+          node scripts/changed-app-routes.mjs \
+            /tmp/changed-files.txt \
+            /tmp/changed-routes.json
+
+          echo "routes=$(cat /tmp/changed-routes.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Skip when no routes changed
+        if: steps.routes.outputs.routes == '[]'
+        run: echo "No affected App Router routes found."
+
+      - name: Build Next.js
+        if: steps.routes.outputs.routes != '[]'
+        run: npm run build
+
+      - name: Start Next.js
+        if: steps.routes.outputs.routes != '[]'
+        run: |
+          npm run start > /tmp/next.log 2>&1 &
+          echo $! > /tmp/next.pid
+
+          for i in {1..60}; do
+            if curl -fsS http://localhost:3000 > /dev/null; then
+              echo "Next.js is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          cat /tmp/next.log
+          exit 1
+
+      - name: Configure Lighthouse CI
+        if: steps.routes.outputs.routes != '[]'
+        env:
+          ROUTES: ${{ steps.routes.outputs.routes }}
+        run: |
+          node -e '
+            const routes = JSON.parse(process.env.ROUTES);
+            const urls = routes.map(route => `http://localhost:3000${route}`);
+            const config = {
+              ci: {
+                collect: {
+                  url: urls,
+                  numberOfRuns: 1
+                },
+                assert: {
+                  assertions: {
+                    "categories:performance": ["warn", { minScore: 0.8 }],
+                    "categories:accessibility": ["error", { minScore: 0.9 }],
+                    "categories:best-practices": ["warn", { minScore: 0.9 }],
+                    "categories:seo": ["warn", { minScore: 0.9 }]
+                  }
+                },
+                upload: {
+                  target: "filesystem",
+                  outputDir: "./lhci-reports"
+                }
+              }
+            };
+            require("fs").writeFileSync(
+              ".lighthouserc.json",
+              JSON.stringify(config, null, 2)
+            );
+          '
+
+      - name: Run Lighthouse
+        if: steps.routes.outputs.routes != '[]'
+        run: |
+          npx @lhci/cli autorun --config=.lighthouserc.json
+
+      - name: Upload Lighthouse reports
+        if: always() && steps.routes.outputs.routes != '[]'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-changed-routes
+          path: lhci-reports/
+          if-no-files-found: warn
+
+      - name: Stop Next.js
+        if: always()
+        run: |
+          if [ -f /tmp/next.pid ]; then
+            kill "$(cat /tmp/next.pid)" || true
+          fi
