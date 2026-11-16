@@ -1,36 +1,74 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Lighthouse for changed Next.js routes
 
-## Getting Started
+A GitHub Actions workflow that runs [Lighthouse CI](https://github.com/GoogleChrome/lighthouse-ci) only on the App Router routes a change affects, so you don't audit every page on every push.
 
-First, run the development server:
+- Workflow: [`.github/workflows/lighthouse-changed-routes.yml`](.github/workflows/lighthouse-changed-routes.yml)
+- Route detection: [`scripts/changed-app-routes.mjs`](scripts/changed-app-routes.mjs)
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## When it runs
+
+- Pull requests targeting `main`
+- Pushes to `main`
+- Manually (`workflow_dispatch`): compares `HEAD` with the merge base of the default branch
+
+A new run on the same PR or branch cancels the one already in progress.
+
+## What it does
+
+1. Diffs the base and head commits to get the changed files.
+2. Maps those files to routes (see below).
+3. If no routes are affected, it stops there.
+4. Otherwise it runs `npm run build`, starts `npm run start` on `localhost:3000`, and runs `lhci autorun` against each affected route (1 run per URL).
+5. Uploads the HTML/JSON reports as the `lighthouse-changed-routes` artifact, even when assertions fail.
+
+## How files map to routes
+
+The script looks in `app/`, or `src/app/` if there is no `app/`.
+
+| Changed file | Routes audited |
+| --- | --- |
+| `page.(tsx\|ts\|jsx\|js\|mdx\|md)` | That page's route |
+| `layout`, `template`, `loading`, `error`, `global-error`, `not-found`, `default` | Every page in that folder and below |
+| Any other file in the app folder (components, CSS, utils) | Every page |
+| Files outside the app folder | None |
+
+Route groups `(group)`, parallel slots `@slot` and interception prefixes `(.)`, `(..)`, `(...)` are stripped from the URL. Pages in private folders (`_folder`) and dynamic routes (`[id]`, `[...slug]`) are skipped, since there's no URL to visit without real params. Deleted pages are skipped too.
+
+## Thresholds
+
+| Category | Min score | On failure |
+| --- | --- | --- |
+| Accessibility | 0.9 | **Fails the job** |
+| Performance | 0.8 | Warning |
+| Best practices | 0.9 | Warning |
+| SEO | 0.9 | Warning |
+
+To change them, edit the `assertions` block in the "Configure Lighthouse CI" step.
+
+## Use it in another project
+
+Copy both files into your Next.js App Router project:
+
+```
+.github/workflows/lighthouse-changed-routes.yml
+scripts/changed-app-routes.mjs
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The project needs `build` and `start` scripts in `package.json` and a `package-lock.json` (the workflow uses `npm ci`). Change the `branches` filters if your default branch isn't `main`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Test route detection locally
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+git diff --name-only main > changed-files.txt
+node scripts/changed-app-routes.mjs changed-files.txt routes.json
+cat routes.json
+```
 
-## Learn More
+## Run the app
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm install
+npm run dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Open [http://localhost:3000](http://localhost:3000).
