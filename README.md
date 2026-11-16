@@ -22,8 +22,8 @@ See the workflow running on real pull requests in this repo:
 
 | PR | What it changes | What to look at |
 | --- | --- | --- |
-| [#2: Add example App Router routes](https://github.com/Fivlas/lighthouse-workflow/pull/2) | Route groups, `[slug]`, `[...slug]`, `[[...filters]]`, `@stats` slot, `(.)photo` interception, `_private` folder | Only the static routes get audited; dynamic and private ones are skipped |
-| [#3: Add `/test` page](https://github.com/Fivlas/lighthouse-workflow/pull/3) | One new page | Exactly one route (`/test`) gets audited |
+| [#2: Add `/test` page](https://github.com/Fivlas/lighthouse-workflow/pull/2) | One new page | Exactly one route (`/test`) gets audited |
+| [#3: Add example App Router routes](https://github.com/Fivlas/lighthouse-workflow/pull/3) | Route groups, `[slug]`, `[...slug]`, `[[...filters]]`, `@stats` slot, `(.)photo` interception, `_private` folder | Only the static routes get audited; dynamic and private ones are skipped |
 
 Open a PR's **Checks** tab → *Audit changed Next.js routes* → **Detect changed routes** to see the route list, and **Run Lighthouse** for the report links.
 
