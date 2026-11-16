@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: lighthouse-${{ github.event.pull_request.number || github.ref }}
@@ -115,11 +116,79 @@ jobs:
           '
 
       - name: Run Lighthouse
+        id: lhci
         if: steps.routes.outputs.routes != '[]'
         env:
           LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
         run: |
           npx @lhci/cli autorun --config=.lighthouserc.json
+
+      - name: Build Lighthouse failure comment
+        id: lhci-comment
+        if: always() && github.event_name == 'pull_request' && steps.lhci.outcome == 'failure'
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+
+          let assertions = [];
+          let links = {};
+          try {
+            assertions = JSON.parse(
+              fs.readFileSync(".lighthouseci/assertion-results.json", "utf8")
+            );
+          } catch {}
+          try {
+            links = JSON.parse(fs.readFileSync(".lighthouseci/links.json", "utf8"));
+          } catch {}
+
+          const failed = assertions.filter((a) => !a.passed);
+          if (failed.length === 0) {
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "has_failures=false\n");
+            process.exit(0);
+          }
+
+          const lines = [
+            "<!-- lighthouse-changed-routes -->",
+            "## Lighthouse audit failed",
+            "",
+            "| URL | Audit | Level | Actual | Expected |",
+            "| --- | --- | --- | --- | --- |",
+          ];
+
+          for (const a of failed) {
+            const label = a.auditProperty
+              ? `${a.auditId}.${a.auditProperty}`
+              : a.auditId || a.name;
+            lines.push(
+              `| \`${a.url}\` | ${label} | ${a.level} | ${a.actual} | ${a.expected} |`
+            );
+          }
+
+          const reportLinks = Object.entries(links);
+          if (reportLinks.length > 0) {
+            lines.push("", "### Reports");
+            for (const [url, reportUrl] of reportLinks) {
+              lines.push(`- [\`${url}\`](${reportUrl})`);
+            }
+          }
+
+          fs.writeFileSync("/tmp/lhci-comment.md", lines.join("\n") + "\n");
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, "has_failures=true\n");
+          NODE
+
+      - name: Comment on failed Lighthouse audit
+        if: always() && github.event_name == 'pull_request' && steps.lhci-comment.outputs.has_failures == 'true'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: lighthouse-changed-routes
+          path: /tmp/lhci-comment.md
+
+      - name: Clear Lighthouse failure comment
+        if: always() && github.event_name == 'pull_request' && steps.lhci.outcome == 'success'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: lighthouse-changed-routes
+          delete: true
 
       - name: Upload Lighthouse reports
         if: always() && steps.routes.outputs.routes != '[]'
