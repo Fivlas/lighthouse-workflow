@@ -10,7 +10,7 @@ No full-site audits on every push, no hand-kept URL lists.
 ![Lighthouse CI](https://img.shields.io/badge/Lighthouse_CI-autorun-F44B21?logo=lighthouse&logoColor=white)
 ![Node](https://img.shields.io/badge/Node-22-5FA04E?logo=nodedotjs&logoColor=white)
 
-[Preview](#-preview) · [Setup](#-setup) · [How it works](#-how-it-works) · [Agent prompt](#-agent-prompt)
+[Preview](#preview) · [Setup](#setup) · [How it works](#how-it-works) · [Agent prompt](#agent-prompt)
 
 </div>
 
